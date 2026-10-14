@@ -29,9 +29,11 @@ Sırası: **0 → 2 → 1 → 3 → 4** (önce token'ları ve Google anahtarın�
 
 ```bash
 pkg update && pkg upgrade -y
-pkg install -y python tmux termux-api
+pkg install -y python tmux termux-api python-cryptography
 termux-setup-storage
 ```
+
+> `python-cryptography` Termux'un hazır derlenmiş paketidir. Bu olmadan `pip install` adımı, `cryptography` kütüphanesini telefonda derlemeye çalışırken **"Rust not found / Failed to build 'cryptography'"** hatası verir.
 
 `termux-setup-storage` telefonun dahili hafızasına (`~/storage/downloads` vb.) erişim izni ister — **İzin ver** deyin.
 
@@ -179,6 +181,23 @@ Komutlar: `/yenisayfa` (veya `/yenisayfa Borclar`), `/sayfalar`, `/ozet`, `/ipta
 | 14-10-2026 11:05 | Gelir | 15000 | maaş |
 
 > Not: Şartnamedeki başlıklar (Tarih, Tür, Tutar, Açıklama) ile sütun listesi (A/B/C) arasında fark vardı; gelir/gider ayrımı yapılabilsin diye 4 sütunlu yapı kullanıldı. Tutar daima pozitif sayı olarak yazılır, yönü **Tür** sütunu belirtir.
+
+---
+
+## 3.1 (İsteğe bağlı) Telegram Mini App ile form
+
+Yazarak kayıt yerine Telegram içinde açılan bir form (Gider/Gelir, tutar, açıklama, sekme) kullanılabilir. Telegram Mini App'leri yalnızca **herkese açık HTTPS** adresinden açtığı için `webapp/index.html` dosyası ücretsiz **GitHub Pages**'e konur. Sayfada gizli bilgi yoktur; Sheets'e yazmayı yine telefondaki bot yapar.
+
+1. https://github.com adresinde hesap açın (yoksa).
+2. Sağ üst **+ → New repository** → ad: `asistan-app` → **Public** → **Create repository**.
+3. Açılan sayfada **uploading an existing file** bağlantısına tıklayın → `webapp/index.html` dosyasını sürükleyin → **Commit changes**.
+4. Depoda **Settings → Pages** → *Branch*: `main`, klasör: `/ (root)` → **Save**.
+5. 1-2 dakika sonra aynı sayfanın üstünde adres görünür: `https://KULLANICIADI.github.io/asistan-app/`
+6. Bu adresi `main.py`'deki `WEBAPP_URL = ""` tırnaklarının içine yazın, botu yeniden başlatın.
+
+Bot açılınca sohbetin altında **📝 Kayıt Ekle** butonu belirir. Formu doldurup **Kaydet**'e basınca pencere kapanır ve bot "✅ kaydedildi" yanıtı verir. Yeni sekmeyi formdaki **➕ Yeni sekme** ile de açabilirsiniz.
+
+> Buton görünmezse bota `/start` yazın. Sekme listesi eskiyse (örn. Sheets'te elle sekme eklediyseniz) yine `/start` yazmanız listeyi yeniler.
 
 ---
 

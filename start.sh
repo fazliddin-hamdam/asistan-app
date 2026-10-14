@@ -8,6 +8,7 @@ termux-wake-lock 2>/dev/null   # Telefon uykudayken CPU'nun durmasını engeller
 while true; do
     echo "[$(date '+%d-%m-%Y %H:%M:%S')] Bot başlatılıyor..."
     python main.py
-    echo "[$(date '+%d-%m-%Y %H:%M:%S')] Bot durdu (çıkış kodu $?). 10 sn sonra yeniden başlatılacak..."
+    code=$?   # $(date) $?'yi sıfırladığı için çıkış kodunu hemen sakla
+    echo "[$(date '+%d-%m-%Y %H:%M:%S')] Bot durdu (çıkış kodu $code). 10 sn sonra yeniden başlatılacak..."
     sleep 10
 done

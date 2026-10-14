@@ -32,11 +32,20 @@ import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
+from urllib.parse import quote
 
 import gspread
 import requests
 from gspread.utils import ValueRenderOption
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    Update,
+    WebAppInfo,
+)
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -73,6 +82,10 @@ CREDENTIALS_FILE = "credentials.json"
 TIMEZONE = timezone(timedelta(hours=3), "TRT")
 DATE_FORMAT = "%d-%m-%Y %H:%M"  # GG-AA-YYYY SS:DD
 
+# >>> PLACEHOLDER 5 (isteğe bağlı): Mini App sayfasının HTTPS adresi (webapp/index.html'in yayınlandığı yer)
+# Örn. "https://kullaniciadi.github.io/asistan-app/". Boş bırakılırsa Mini App butonu gösterilmez.
+WEBAPP_URL = ""
+
 # Her yeni sekmenin ilk satırına yazılacak başlıklar (A, B, C, D sütunları)
 HEADERS = ["Tarih", "Tür", "Tutar", "Açıklama"]
 
@@ -89,6 +102,9 @@ NOTIFY_ON_START = True
 MAX_PENDING_ENTRIES = 20
 
 LOG_FILE = "bot.log"
+
+# Telegram isteklerinde beklenecek en uzun süre (saniye)
+NETWORK_TIMEOUT = 30
 
 # =============================================================================
 # LOGLAMA
@@ -142,6 +158,24 @@ CURRENCY_WORDS = {"tl", "try", "₺", "lira", "tl."}
 INCOME_KEYWORDS = {"gelir", "+gelir"}
 EXPENSE_KEYWORDS = {"gider", "harcama"}
 
+# Metnin herhangi bir yerinde geçince kaydı GELİR sayan kelime başları.
+# "aldım" bilerek yok: "ekmek aldım" gider, "müşteriden aldım" gelir; ayırt edilemez.
+# Tahmin yanlışsa kayıt mesajındaki "🔄" butonu ile tür değiştirilebilir.
+INCOME_HINTS = (
+    "maaş", "maas", "gelir", "tahsil", "kazanç", "kazanc", "kazandım", "kazandim",
+    "sattım", "sattim", "satış", "satis", "müşteriden", "musteriden",
+    "ikramiye", "prim", "harçlık", "harclik", "temettü",
+)
+
+
+def tr_lower(text: str) -> str:
+    """Türkçe kurallı küçük harf: 'MAAŞ' -> 'maaş', 'İADE' -> 'iade', 'KIRA' -> 'kıra'."""
+    return text.replace("I", "ı").replace("İ", "i").lower()
+
+
+def looks_like_income(words: list[str]) -> bool:
+    return any(tr_lower(w).strip(".,;:!?'\"").startswith(INCOME_HINTS) for w in words)
+
 # İsteğe bağlı işaret, isteğe bağlı ₺ ön eki, rakamla başlayan sayı, isteğe bağlı birim son eki.
 # "A101" gibi harfle başlayan kelimeler eşleşmez; böylece tutar sanılmaz.
 AMOUNT_RE = re.compile(r"^([+-]?)₺?(\d[\d.,]*)(tl|try|₺)?$", re.IGNORECASE)
@@ -194,11 +228,12 @@ def parse_entry(text: str) -> ParsedEntry | None:
         return None
 
     kind = KIND_EXPENSE
-    first = tokens[0].lower()
+    explicit = False  # Tür kullanıcı tarafından açıkça belirtildi mi (gelir/gider kelimesi, +/- işareti)
+    first = tr_lower(tokens[0])
     if first in INCOME_KEYWORDS:
-        kind, tokens = KIND_INCOME, tokens[1:]
+        kind, tokens, explicit = KIND_INCOME, tokens[1:], True
     elif first in EXPENSE_KEYWORDS:
-        tokens = tokens[1:]
+        tokens, explicit = tokens[1:], True
 
     # (indeks, değer, işaret, birim_var_mı, birim_sonraki_kelimede_mi)
     candidates: list[tuple[int, float, str, bool, bool]] = []
@@ -220,15 +255,18 @@ def parse_entry(text: str) -> ParsedEntry | None:
     idx, value, sign, _, currency_next = (with_currency or candidates)[-1]
 
     if sign == "+":
-        kind = KIND_INCOME
+        kind, explicit = KIND_INCOME, True
     elif sign == "-":
-        kind = KIND_EXPENSE
+        kind, explicit = KIND_EXPENSE, True
 
     skip = {idx, idx + 1} if currency_next else {idx}
     description = " ".join(t for i, t in enumerate(tokens) if i not in skip).strip()
     if description.startswith("+"):  # "+ maaş 15000" gibi yazımlar
-        kind = KIND_INCOME
+        kind, explicit = KIND_INCOME, True
         description = description[1:].strip()
+
+    if not explicit and looks_like_income(description.split()):
+        kind = KIND_INCOME
 
     return ParsedEntry(amount=round(value, 2), kind=kind, description=description or "(açıklama yok)")
 
@@ -340,9 +378,9 @@ class SheetsRepository:
 
     def create_sheet(self, title: str) -> None:
         def _create(sh: gspread.Spreadsheet):
-            existing = {ws.title.casefold() for ws in sh.worksheets()}
-            if title.casefold() in existing:
-                raise SheetExistsError(title)
+            for ws in sh.worksheets():
+                if ws.title.casefold() == title.casefold():
+                    raise SheetExistsError(ws.title)  # Mevcut sekmenin gerçek adı
             ws = sh.add_worksheet(title=title, rows=1000, cols=len(HEADERS))
             ws.update([HEADERS], "A1")
             # Görsel düzenlemeler: başarısız olsa da sekme kullanılabilir.
@@ -397,10 +435,22 @@ def describe_sheets_error(e: Exception) -> str:
         return "Bu sekme artık yok (silinmiş ya da adı değişmiş olabilir)."
     if isinstance(e, gspread.exceptions.SpreadsheetNotFound):
         return "Tablo bulunamadı. SPREADSHEET_ID'yi ve tablonun service account ile paylaşıldığını kontrol edin."
+    # gspread, open_by_key'de 403'ü Python'un PermissionError'ına çevirir; asıl APIError __cause__'dadır.
+    if isinstance(e, PermissionError) and isinstance(e.__cause__, gspread.exceptions.APIError):
+        e = e.__cause__
     if isinstance(e, gspread.exceptions.APIError):
         status = getattr(getattr(e, "response", None), "status_code", "?")
         if status == 403:
-            return "Erişim reddedildi (403). Tabloyu service account e-postasıyla 'Düzenleyen' olarak paylaşın."
+            detail = str(e)
+            if "has not been used" in detail or "SERVICE_DISABLED" in detail or "is disabled" in detail:
+                return (
+                    "Google Sheets API (veya Drive API) bu projede etkin değil. Google Cloud'da "
+                    "service account'un bulunduğu projede iki API'yi de 'Enable' yapın, birkaç dakika bekleyin."
+                )
+            return (
+                "Erişim reddedildi (403). Tabloyu service account e-postasıyla (…iam.gserviceaccount.com) "
+                "'Düzenleyen' olarak paylaşın."
+            )
         if status == 429:
             return "Google kota sınırı aşıldı, bir dakika sonra tekrar deneyin."
         return f"Google Sheets API hatası ({status})."
@@ -447,12 +497,21 @@ def entry_summary(entry: ParsedEntry) -> str:
     return f"{icon} <b>{entry.kind}</b>: {fmt_money(entry.amount)}\n📝 {esc(entry.description)}"
 
 
-def build_sheet_keyboard(entry_id: str, titles: list[str]) -> InlineKeyboardMarkup:
+def pending_text(pending: PendingEntry) -> str:
+    prompt = "📂 Hangi sekmeye kaydedilsin?" if pending.sheets else "📂 Henüz sekme yok, yeni bir tane oluşturun:"
+    return f"{entry_summary(pending.entry)}\n\n{prompt}"
+
+
+def build_sheet_keyboard(entry_id: str, pending: PendingEntry) -> InlineKeyboardMarkup:
     """
     Sekme butonları. callback_data 64 bayt sınırı olduğundan sekme adını değil,
     bekleyen kaydın kısa ID'sini ve sekmenin listedeki indeksini taşır.
+    En üstteki buton, tahmin edilen türü (Gider/Gelir) tersine çevirir.
     """
-    rows, row = [], []
+    other = KIND_INCOME if pending.entry.kind == KIND_EXPENSE else KIND_EXPENSE
+    rows = [[InlineKeyboardButton(f"🔄 {other} olarak değiştir", callback_data=f"tur|{entry_id}")]]
+    titles = pending.sheets
+    row = []
     for idx, title in enumerate(titles):
         row.append(InlineKeyboardButton(title, callback_data=f"kaydet|{entry_id}|{idx}"))
         if len(row) == BUTTONS_PER_ROW:
@@ -497,7 +556,9 @@ HELP_TEXT = (
     "• <code>Banyo musluğu 400</code>\n"
     "• <code>Market 1.250,50</code>\n"
     "• <code>+15000 maaş</code> veya <code>gelir kira 8000</code> → gelir\n\n"
-    "Ardından kaydın gideceği sekmeyi butonlardan seçin.\n\n"
+    "• <code>maaş</code>, <code>tahsilat</code>, <code>müşteriden</code>, <code>sattım</code> gibi kelimeler de gelir sayılır\n\n"
+    "Ardından kaydın gideceği sekmeyi butonlardan seçin.\n"
+    "Tür yanlış tahmin edildiyse önce <b>🔄</b> butonuyla değiştirin.\n\n"
     "<b>Komutlar</b>\n"
     "/yenisayfa – Yeni sekme (kasa) oluştur\n"
     "/sayfalar – Sekmeleri listele\n"
@@ -508,7 +569,11 @@ HELP_TEXT = (
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_html(HELP_TEXT)
+    keyboard = await build_webapp_keyboard(get_repo(context))
+    text = HELP_TEXT
+    if keyboard:
+        text += f"\n\nForm ile eklemek için alttaki <b>{WEBAPP_BUTTON_TEXT}</b> butonuna basın."
+    await update.message.reply_html(text, reply_markup=keyboard)
 
 
 async def cmd_sayfalar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -590,10 +655,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
     entry_id = add_pending(context, pending)
 
-    prompt = "📂 Hangi sekmeye kaydedilsin?" if titles else "📂 Henüz sekme yok, yeni bir tane oluşturun:"
     sent = await update.message.reply_html(
-        f"{entry_summary(entry)}\n\n{prompt}",
-        reply_markup=build_sheet_keyboard(entry_id, titles),
+        pending_text(pending),
+        reply_markup=build_sheet_keyboard(entry_id, pending),
     )
     pending.message_id = sent.message_id
 
@@ -629,7 +693,7 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text(
             f"{entry_summary(pending.entry)}\n\n⚠️ {esc(describe_sheets_error(e))}\nTekrar deneyin:",
             parse_mode="HTML",
-            reply_markup=build_sheet_keyboard(entry_id, pending.sheets),
+            reply_markup=build_sheet_keyboard(entry_id, pending),
         )
         return
 
@@ -637,6 +701,23 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text(
         f"✅ <b>{esc(title)}</b> sekmesine kaydedildi\n\n{entry_summary(pending.entry)}\n🕒 {pending.date_str}",
         parse_mode="HTML",
+    )
+
+
+async def on_toggle_kind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """'🔄 Gelir/Gider olarak değiştir' butonu: kaydetmeden önce türü düzeltir."""
+    query = update.callback_query
+    entry_id = query.data.split("|", 1)[1]
+    pending = get_pending(context).get(entry_id)
+    if pending is None:
+        await query.answer()
+        await query.edit_message_text("⌛ Bu kayıt artık geçerli değil (zaten kaydedilmiş ya da bot yeniden başlamış).")
+        return
+    entry = pending.entry
+    entry.kind = KIND_INCOME if entry.kind == KIND_EXPENSE else KIND_EXPENSE
+    await query.answer(f"{entry.kind} olarak değiştirildi")
+    await query.edit_message_text(
+        pending_text(pending), parse_mode="HTML", reply_markup=build_sheet_keyboard(entry_id, pending)
     )
 
 
@@ -649,11 +730,118 @@ async def on_cancel_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # =============================================================================
+# TELEGRAM MINI APP (webapp/index.html)
+# =============================================================================
+#
+# Mini App statik bir sayfadır (örn. GitHub Pages'te). Sekme listesini butonun
+# adresindeki ?sheets=[...] parametresinden okur, formu doldurunca veriyi
+# Telegram.WebApp.sendData() ile gönderir; veri bota normal bir mesaj gibi
+# (web_app_data) ulaşır. Böylece telefonun dışarıya açık bir sunucusu olmasına
+# gerek kalmaz. sendData yalnızca alttaki (reply) klavye butonuyla açılan
+# Mini App'lerde çalışır; bu yüzden buton reply klavyeye konur.
+
+WEBAPP_BUTTON_TEXT = "📝 Kayıt Ekle"
+MAX_DESCRIPTION_LEN = 200
+MAX_SHEET_NAME_LEN = 100  # Google Sheets sekme adı sınırı
+
+
+def normalize_sheet_name(raw: str) -> str:
+    return " ".join(str(raw).split())  # Fazla boşlukları temizle
+
+
+async def build_webapp_keyboard(repo: SheetsRepository) -> ReplyKeyboardMarkup | None:
+    """
+    Mini App'i açan alt klavye butonu. Sekme listesi adrese gömüldüğü için
+    sekmeler değiştikçe klavye yeniden gönderilir.
+    """
+    if not WEBAPP_URL:
+        return None
+    try:
+        titles = await asyncio.to_thread(repo.list_sheet_titles)
+    except Exception:  # noqa: BLE001  (liste alınamazsa Mini App yine de "yeni sekme" ile çalışır)
+        logger.warning("Mini App için sekme listesi alınamadı", exc_info=True)
+        titles = []
+    sep = "&" if "?" in WEBAPP_URL else "?"
+    url = f"{WEBAPP_URL}{sep}sheets={quote(json.dumps(titles, ensure_ascii=False), safe='')}"
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(WEBAPP_BUTTON_TEXT, web_app=WebAppInfo(url=url))]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
+def parse_webapp_payload(data: str) -> tuple[ParsedEntry, str, bool]:
+    """
+    Mini App'ten gelen JSON'u doğrular. Hatalıysa ValueError fırlatır.
+    Beklenen: {"type": "Gider"|"Gelir", "amount": 500, "desc": "...", "sheet": "Kasa", "new": false}
+    """
+    try:
+        payload = json.loads(data)
+    except json.JSONDecodeError:
+        raise ValueError("Mini App'ten gelen veri okunamadı.") from None
+    if not isinstance(payload, dict):
+        raise ValueError("Mini App'ten gelen veri geçersiz.")
+
+    kind = payload.get("type")
+    if kind not in (KIND_EXPENSE, KIND_INCOME):
+        raise ValueError("Kayıt türü geçersiz.")
+
+    amount = payload.get("amount")
+    if isinstance(amount, str):
+        amount = parse_number(amount.replace("₺", "").strip())
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not 0 < amount < 1e12:
+        raise ValueError("Tutar geçersiz.")
+
+    sheet = normalize_sheet_name(payload.get("sheet") or "")
+    if not sheet or len(sheet) > MAX_SHEET_NAME_LEN:
+        raise ValueError("Sekme adı geçersiz.")
+
+    description = " ".join(str(payload.get("desc") or "").split())[:MAX_DESCRIPTION_LEN]
+    entry = ParsedEntry(amount=round(float(amount), 2), kind=kind, description=description or "(açıklama yok)")
+    return entry, sheet, bool(payload.get("new"))
+
+
+async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mini App'ten gelen kaydı (gerekirse yeni sekme açarak) Sheets'e yazar."""
+    message = update.effective_message
+    repo = get_repo(context)
+    try:
+        entry, sheet, is_new = parse_webapp_payload(message.web_app_data.data)
+    except ValueError as e:
+        logger.warning("Geçersiz Mini App verisi: %s", message.web_app_data.data)
+        await message.reply_text(f"⚠️ {e}")
+        return
+
+    date_str = now_str()
+    note = ""
+    try:
+        if is_new:
+            try:
+                await asyncio.to_thread(repo.create_sheet, sheet)
+                logger.info("Yeni sekme oluşturuldu (Mini App): %s", sheet)
+                note = f"\n🆕 <b>{esc(sheet)}</b> sekmesi oluşturuldu."
+            except SheetExistsError as e:
+                sheet = e.args[0]  # "kasa" yazıldıysa mevcut "Kasa" sekmesine yaz
+                note = f"\nℹ️ <b>{esc(sheet)}</b> zaten vardı, kayıt oraya eklendi."
+        await asyncio.to_thread(repo.append_entry, sheet, entry, date_str)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Mini App kaydı yazılamadı")
+        await message.reply_text(f"⚠️ Kayıt yazılamadı: {describe_sheets_error(e)}")
+        return
+
+    logger.info("Kaydedildi (Mini App) -> %s: %s %s %s", sheet, entry.kind, entry.amount, entry.description)
+    await message.reply_html(
+        f"✅ <b>{esc(sheet)}</b> sekmesine kaydedildi{note}\n\n{entry_summary(entry)}\n🕒 {date_str}",
+        # Yeni sekme açıldıysa Mini App'in listesi güncellensin diye klavyeyi yenile
+        reply_markup=await build_webapp_keyboard(repo) if is_new else None,
+    )
+
+
+# =============================================================================
 # YENİ SAYFA (SEKME) OLUŞTURMA — ConversationHandler
 # =============================================================================
 
 WAITING_SHEET_NAME = 1
-MAX_SHEET_NAME_LEN = 100  # Google Sheets sekme adı sınırı
 
 
 async def new_sheet_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -688,7 +876,7 @@ async def new_sheet_receive_name(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def _create_sheet_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_name: str) -> int:
-    name = " ".join(raw_name.split())  # Fazla boşlukları temizle
+    name = normalize_sheet_name(raw_name)
     if not name:
         await update.message.reply_text("Ad boş olamaz, tekrar yazın (veya /iptal).")
         return WAITING_SHEET_NAME
@@ -712,7 +900,8 @@ async def _create_sheet_flow(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     logger.info("Yeni sekme oluşturuldu: %s", name)
     await update.message.reply_html(
-        f"✅ <b>{esc(name)}</b> sekmesi oluşturuldu.\nBaşlıklar: {esc(', '.join(HEADERS))}"
+        f"✅ <b>{esc(name)}</b> sekmesi oluşturuldu.\nBaşlıklar: {esc(', '.join(HEADERS))}",
+        reply_markup=await build_webapp_keyboard(repo),  # Mini App'in sekme listesini güncelle
     )
 
     # Butondan gelindiyse bekleyen kaydı yeni sekmeye yaz
@@ -791,7 +980,11 @@ async def on_startup(application: Application) -> None:
 
     if NOTIFY_ON_START:
         try:
-            await application.bot.send_message(ALLOWED_USER_ID, f"🤖 Bot çalışıyor.\n{status}")
+            await application.bot.send_message(
+                ALLOWED_USER_ID,
+                f"🤖 Bot çalışıyor.\n{status}",
+                reply_markup=await build_webapp_keyboard(repo),
+            )
         except Exception as e:  # noqa: BLE001
             # Bota hiç /start yazmadıysanız Telegram bot'un size mesaj atmasına izin vermez.
             logger.warning("Başlangıç bildirimi gönderilemedi (bota önce /start yazın): %s", e)
@@ -805,6 +998,8 @@ def validate_config() -> None:
         errors.append("ALLOWED_USER_ID doldurulmamış (sayı olmalı).")
     if not SPREADSHEET_ID or SPREADSHEET_ID.startswith("BURAYA"):
         errors.append("SPREADSHEET_ID doldurulmamış.")
+    if WEBAPP_URL and not WEBAPP_URL.startswith("https://"):
+        errors.append("WEBAPP_URL 'https://' ile başlamalı (Telegram Mini App yalnızca HTTPS açar).")
     try:
         load_service_account_info(CREDENTIALS_FILE)
     except CredentialsError as e:
@@ -816,7 +1011,19 @@ def validate_config() -> None:
 
 
 def build_application() -> Application:
-    application = Application.builder().token(TELEGRAM_TOKEN).post_init(on_startup).build()
+    application = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        # Mobil internette varsayılan 5 sn kısa kalabiliyor
+        .connect_timeout(NETWORK_TIMEOUT)
+        .read_timeout(NETWORK_TIMEOUT)
+        .write_timeout(NETWORK_TIMEOUT)
+        .pool_timeout(NETWORK_TIMEOUT)
+        .get_updates_connect_timeout(NETWORK_TIMEOUT)
+        .get_updates_read_timeout(NETWORK_TIMEOUT)
+        .post_init(on_startup)
+        .build()
+    )
     application.bot_data["repo"] = SheetsRepository(CREDENTIALS_FILE, SPREADSHEET_ID)
 
     # 1) Güvenlik kapısı — her şeyden önce çalışır
@@ -849,8 +1056,12 @@ def build_application() -> Application:
     # 4) Butonlar
     application.add_handler(CallbackQueryHandler(on_save, pattern=r"^kaydet\|"))
     application.add_handler(CallbackQueryHandler(on_cancel_entry, pattern=r"^iptal\|"))
+    application.add_handler(CallbackQueryHandler(on_toggle_kind, pattern=r"^tur\|"))
 
-    # 5) Serbest metin = hızlı veri girişi
+    # 5) Mini App'ten gelen form verisi
+    application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_webapp_data))
+
+    # 6) Serbest metin = hızlı veri girişi
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     application.add_error_handler(error_handler)
@@ -862,7 +1073,8 @@ def main() -> None:
     logger.info("Bot başlatılıyor...")
     application = build_application()
     # run_polling ağ kopmalarında kendisi yeniden bağlanır; Ctrl+C ile düzgün kapanır.
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # bootstrap_retries=-1: açılışta internet yoksa/yavaşsa kapanmak yerine bağlanana kadar dener.
+    application.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=-1)
 
 
 if __name__ == "__main__":
