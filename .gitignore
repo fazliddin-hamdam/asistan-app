@@ -1,0 +1,7 @@
+# Gizli bilgiler: asla commit etmeyin
+config.py
+credentials.json
+
+*.log
+*.log.*
+__pycache__/
