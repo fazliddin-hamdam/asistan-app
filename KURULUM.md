@@ -4,10 +4,13 @@ Dosyalar:
 
 | Dosya | Görevi |
 |---|---|
-| `main.py` | Botun tamamı (ayarlar en üstte) |
+| `main.py` | Botun tamamı |
+| `config.example.py` | Ayar şablonu → `config.py` olarak kopyalanıp doldurulur |
 | `requirements.txt` | Python kütüphaneleri |
 | `start.sh` | Botu çökünce otomatik yeniden başlatan döngü |
-| `credentials.json` | **Sizin ekleyeceğiniz** Google Service Account anahtarı |
+| `docs/index.html` | Mini App formu (GitHub Pages'te yayınlanır) |
+| `config.py` | **Sizin oluşturacağınız** gizli ayarlar (git'e eklenmez) |
+| `credentials.json` | **Sizin ekleyeceğiniz** Google Service Account anahtarı (git'e eklenmez) |
 
 Sırası: **0 → 2 → 1 → 3 → 4** (önce token'ları ve Google anahtarını hazırlamak, sonra telefona kurmak en pratiği).
 
@@ -29,7 +32,7 @@ Sırası: **0 → 2 → 1 → 3 → 4** (önce token'ları ve Google anahtarın�
 
 ```bash
 pkg update && pkg upgrade -y
-pkg install -y python tmux termux-api python-cryptography
+pkg install -y python git tmux termux-api python-cryptography
 termux-setup-storage
 ```
 
@@ -37,15 +40,23 @@ termux-setup-storage
 
 `termux-setup-storage` telefonun dahili hafızasına (`~/storage/downloads` vb.) erişim izni ister — **İzin ver** deyin.
 
-### 1.2 Proje dosyalarını telefona aktarma
-
-Bilgisayardaki `Asistan` klasörünü (içinde `credentials.json` dahil) telefonun **İndirilenler** klasörüne kopyalayın (USB, Google Drive, Telegram "Kayıtlı Mesajlar" vb.). Sonra:
+### 1.2 Projeyi telefona indirme
 
 ```bash
-mkdir -p ~/muhasebe
-cp ~/storage/downloads/Asistan/* ~/muhasebe/
-cd ~/muhasebe
-chmod +x start.sh
+git clone https://github.com/fazliddin-hamdam/asistan-app.git ~/Asistan
+cd ~/Asistan
+```
+
+Gizli dosyalar GitHub'da yoktur; `credentials.json` dosyasını (bölüm 2.4) telefonun **İndirilenler** klasörüne koyup kopyalayın:
+
+```bash
+cp ~/storage/downloads/credentials.json ~/Asistan/
+```
+
+İleride kod güncellenince tek komut yeterlidir (gizli dosyalarınıza dokunmaz):
+
+```bash
+cd ~/Asistan && git pull && pkill -f main.py
 ```
 
 ### 1.3 Python kütüphaneleri
@@ -59,17 +70,18 @@ pip install -r requirements.txt
 ### 1.4 Ayarları doldurma
 
 ```bash
-nano main.py
+cp config.example.py config.py
+nano config.py
 ```
-
-En üstteki **AYARLAR** bölümünde 4 yer var:
 
 | Ayar | Ne yazılacak |
 |---|---|
 | `TELEGRAM_TOKEN` | BotFather'dan aldığınız token (tırnak içinde) |
 | `ALLOWED_USER_ID` | @userinfobot'tan aldığınız sayı (**tırnaksız**) |
 | `SPREADSHEET_ID` | Google Sheets URL'sindeki ID (bkz. bölüm 2.5) |
-| `CREDENTIALS_FILE` | `credentials.json` (dosya aynı klasördeyse değiştirmeyin) |
+| `WEBAPP_URL` | Mini App adresi (bölüm 3.1); kullanmayacaksanız boş bırakın |
+
+> 🔒 `config.py` ve `credentials.json` `.gitignore`'dadır; `git add .` yapsanız bile GitHub'a gitmez.
 
 Kaydet: `Ctrl+O` → `Enter`, çık: `Ctrl+X`.
 
@@ -118,7 +130,7 @@ mkdir -p ~/.termux/boot
 cat > ~/.termux/boot/muhasebe.sh << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 termux-wake-lock
-tmux new -d -s bot "$HOME/muhasebe/start.sh"
+tmux new -d -s bot "$HOME/Asistan/start.sh"
 EOF
 chmod +x ~/.termux/boot/muhasebe.sh
 ```
@@ -142,9 +154,7 @@ chmod +x ~/.termux/boot/muhasebe.sh
 
 ### 2.4 JSON anahtarını alma
 1. Oluşan hizmet hesabına tıklayın → **Anahtarlar** sekmesi → **Anahtar Ekle → Yeni anahtar oluştur → JSON**.
-2. Bir JSON dosyası iner. İki yoldan birini seçin:
-   - **Kolay yol:** İnen dosyayı `credentials.json` adıyla `main.py`'nin yanındaki şablonun yerine koyun.
-   - **Şablon yolu:** İnen dosyayı Not Defteri ile açın, `"client_email"` ve `"private_key"` değerlerini kopyalayıp hazır `credentials.json` şablonundaki `BURAYA_..._YAPISTIRIN` yerlerine yapıştırın (tırnaklar yerinde kalmalı). Anahtarın `-----BEGIN PRIVATE KEY-----` ile `-----END PRIVATE KEY-----\n` arasındaki tamamını alın.
+2. Bir JSON dosyası iner. Adını `credentials.json` yapıp `main.py`'nin yanına koyun (dosyayı elle düzenlemeyin).
 3. `"client_email"` değerini (`muhasebe-bot@....iam.gserviceaccount.com`) bir sonraki adım için not edin.
 
 > 🔒 `credentials.json` tablonuza tam erişim sağlar. Kimseyle paylaşmayın, GitHub'a yüklemeyin (`.gitignore`'da zaten hariç).
@@ -154,7 +164,7 @@ chmod +x ~/.termux/boot/muhasebe.sh
 2. Sağ üst **Paylaş** → 2.4'te kopyaladığınız `client_email` adresini yapıştırın → yetki **Düzenleyen** → "Bildirim gönder" işaretini kaldırın → **Paylaş**.
 3. Adres çubuğundaki URL'den ID'yi alın:
    `https://docs.google.com/spreadsheets/d/`**`1AbC...xyz`**`/edit` → kalın kısım `SPREADSHEET_ID`'dir.
-4. Varsayılan "Sayfa1" sekmesini isterseniz silin/yeniden adlandırın ya da `main.py`'deki `HIDDEN_SHEETS` içine ekleyip butonlardan gizleyin.
+4. Bot ilk sekmeyi oluşturduktan sonra (`/yenisayfa Kasa`) varsayılan boş "Sayfa1" sekmesini silin; yoksa butonlarda o da görünür.
 
 ---
 
@@ -169,9 +179,9 @@ chmod +x ~/.termux/boot/muhasebe.sh
 | `gelir kira 8000` | 8.000 ₺ gelir |
 | `2 adet ampul 150` | 150 ₺ (birim yoksa **son sayı** tutar kabul edilir) |
 
-Mesajdan sonra bot sekmeleri **buton** olarak sunar; birine basınca satır eklenir. **➕ Yeni sayfa** butonu yeni sekme açıp kaydı doğrudan oraya yazar.
+Mesajdan sonra bot sekmeleri **buton** olarak sunar; birine basınca satır eklenir. Tür yanlış tahmin edildiyse önce **🔄** butonuyla Gider/Gelir değiştirilir.
 
-Komutlar: `/yenisayfa` (veya `/yenisayfa Borclar`), `/sayfalar`, `/ozet`, `/iptal`, `/yardim`.
+Komutlar: `/yenisayfa` (veya `/yenisayfa Borclar`), `/ozet`, `/iptal`, `/yardim`.
 
 ### Tablo yapısı (her sekme)
 
@@ -186,14 +196,12 @@ Komutlar: `/yenisayfa` (veya `/yenisayfa Borclar`), `/sayfalar`, `/ozet`, `/ipta
 
 ## 3.1 (İsteğe bağlı) Telegram Mini App ile form
 
-Yazarak kayıt yerine Telegram içinde açılan bir form (Gider/Gelir, tutar, açıklama, sekme) kullanılabilir. Telegram Mini App'leri yalnızca **herkese açık HTTPS** adresinden açtığı için `webapp/index.html` dosyası ücretsiz **GitHub Pages**'e konur. Sayfada gizli bilgi yoktur; Sheets'e yazmayı yine telefondaki bot yapar.
+Yazarak kayıt yerine Telegram içinde açılan bir form (Gider/Gelir, tutar, açıklama, sekme) kullanılabilir. Telegram Mini App'leri yalnızca **herkese açık HTTPS** adresinden açtığı için `docs/index.html` dosyası ücretsiz **GitHub Pages** ile yayınlanır. Sayfada gizli bilgi yoktur; Sheets'e yazmayı yine telefondaki bot yapar.
 
-1. https://github.com adresinde hesap açın (yoksa).
-2. Sağ üst **+ → New repository** → ad: `asistan-app` → **Public** → **Create repository**.
-3. Açılan sayfada **uploading an existing file** bağlantısına tıklayın → `webapp/index.html` dosyasını sürükleyin → **Commit changes**.
-4. Depoda **Settings → Pages** → *Branch*: `main`, klasör: `/ (root)` → **Save**.
-5. 1-2 dakika sonra aynı sayfanın üstünde adres görünür: `https://KULLANICIADI.github.io/asistan-app/`
-6. Bu adresi `main.py`'deki `WEBAPP_URL = ""` tırnaklarının içine yazın, botu yeniden başlatın.
+1. Projeyi kendi GitHub hesabınıza **Public** bir depo olarak yükleyin (ya da bu depoyu *fork*'layın).
+2. Depoda **Settings → Pages** → *Branch*: `main`, klasör: **`/docs`** → **Save**.
+3. 1-2 dakika sonra aynı sayfanın üstünde adres görünür: `https://KULLANICIADI.github.io/asistan-app/`
+4. Bu adresi `config.py`'deki `WEBAPP_URL = ""` tırnaklarının içine yazın, botu yeniden başlatın.
 
 Bot açılınca sohbetin altında **📝 Kayıt Ekle** butonu belirir. Formu doldurup **Kaydet**'e basınca pencere kapanır ve bot "✅ kaydedildi" yanıtı verir. Yeni sekmeyi formdaki **➕ Yeni sekme** ile de açabilirsiniz.
 
@@ -205,10 +213,11 @@ Bot açılınca sohbetin altında **📝 Kayıt Ekle** butonu belirir. Formu dol
 
 | Belirti | Çözüm |
 |---|---|
-| `AYAR HATASI: ...` ile kapanıyor | `main.py` başındaki placeholder'ları doldurun |
-| "Erişim reddedildi (403)" | Tabloyu `client_email` ile **Düzenleyen** olarak paylaşın; Sheets **ve** Drive API açık mı? |
+| `config.py bulunamadı` | `cp config.example.py config.py` ve doldurun (bölüm 1.4) |
+| `AYAR HATASI: ...` ile kapanıyor | `config.py`'deki `BURAYA_...` alanlarını doldurun |
+| "Tabloya erişim yok" | Tabloyu `client_email` ile **Düzenleyen** olarak paylaşın; Sheets **ve** Drive API açık mı? |
 | "Tablo bulunamadı" | `SPREADSHEET_ID` yanlış ya da paylaşım yapılmamış |
 | Başlangıç mesajı gelmiyor | Bota önce `/start` yazın; `ALLOWED_USER_ID` doğru mu? |
 | Bot birkaç saat sonra duruyor | Bölüm 1.7'deki pil ayarları |
 | Butona basınca "artık geçerli değil" | Bot yeniden başladı; bekleyen kayıtlar bellekte tutulur, mesajı tekrar gönderin |
-| Ayrıntılı hata | `tail -n 50 ~/muhasebe/bot.log` |
+| Ayrıntılı hata | `tail -n 50 ~/Asistan/bot.log` |

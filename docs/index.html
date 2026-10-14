@@ -98,7 +98,9 @@
 (function () {
   "use strict";
   var tg = window.Telegram && window.Telegram.WebApp;
-  var inTelegram = !!(tg && tg.initData);  // Telegram dışında açılınca initData boştur
+  // Klavye butonuyla açılan Mini App'lerde initData BOŞ gelir; bu yüzden platforma bakılır.
+  // Telegram dışında açılınca platform "unknown" olur (android, ios, tdesktop, web... değil).
+  var inTelegram = !!(tg && tg.platform && tg.platform !== "unknown");
 
   var state = { kind: "Gider", sheet: null, isNew: false };
   var $ = function (id) { return document.getElementById(id); };

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" width="960" height="640" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ok-gri" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="ok-mor" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4f46e5"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="959" height="639" rx="16" fill="#ffffff" stroke="#e5e7eb"/>
+
+  <text x="40" y="52" font-size="26" font-weight="700" fill="#111827">Telefon = Sunucu</text>
+  <text x="40" y="80" font-size="14" fill="#6b7280">Asistan botu sabit IP, açık port ya da kiralık sunucu olmadan bir Android telefonda 7/24 çalışır.</text>
+
+  <!-- Kullanıcı -->
+  <rect x="40" y="150" width="220" height="140" rx="12" fill="#f9fafb" stroke="#d1d5db"/>
+  <text x="60" y="180" font-size="16" font-weight="700" fill="#111827">Sen (Telegram)</text>
+  <text x="60" y="206" font-size="13" fill="#374151">Mesaj yazarsın:</text>
+  <text x="60" y="228" font-size="13" fill="#111827" font-family="Consolas, Menlo, monospace">A101 500 TL</text>
+  <text x="60" y="254" font-size="13" fill="#374151">ya da Mini App formunu</text>
+  <text x="60" y="272" font-size="13" fill="#374151">açarsın</text>
+
+  <!-- Telegram -->
+  <rect x="380" y="150" width="196" height="110" rx="12" fill="#eaf6fc" stroke="#229ed9"/>
+  <text x="400" y="180" font-size="16" font-weight="700" fill="#0b5c85">Telegram Bot API</text>
+  <text x="400" y="204" font-size="13" fill="#374151" font-family="Consolas, Menlo, monospace">api.telegram.org</text>
+  <text x="400" y="228" font-size="13" fill="#374151">Mesajları sıraya koyar,</text>
+  <text x="400" y="246" font-size="13" fill="#374151">telefon gelip alana kadar</text>
+
+  <!-- Telefon (sunucu) -->
+  <rect x="720" y="130" width="200" height="270" rx="16" fill="#eef2ff" stroke="#4f46e5" stroke-width="2.5"/>
+  <text x="740" y="162" font-size="16" font-weight="700" fill="#312e81">Android Telefon</text>
+  <rect x="740" y="174" width="78" height="22" rx="11" fill="#4f46e5"/>
+  <text x="779" y="189" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="1">SUNUCU</text>
+  <text x="740" y="224" font-size="13" fill="#1f2937">Termux + Python 3</text>
+  <text x="740" y="246" font-size="13" fill="#1f2937">main.py (bot)</text>
+  <text x="740" y="268" font-size="13" fill="#1f2937">tmux + start.sh → 7/24</text>
+  <text x="740" y="290" font-size="13" fill="#1f2937">wake-lock: uykuya geçmez</text>
+  <line x1="740" y1="306" x2="900" y2="306" stroke="#c7d2fe"/>
+  <text x="740" y="328" font-size="13" fill="#1f2937">~63 MB RAM</text>
+  <text x="740" y="350" font-size="13" fill="#1f2937">~%0 CPU (beklerken)</text>
+  <text x="740" y="378" font-size="13" font-weight="700" fill="#4f46e5">Gelen port: YOK</text>
+
+  <!-- Google Sheets -->
+  <rect x="720" y="460" width="200" height="110" rx="12" fill="#e6f4ea" stroke="#188038"/>
+  <text x="740" y="490" font-size="16" font-weight="700" fill="#0d652d">Google Sheets</text>
+  <text x="740" y="514" font-size="13" fill="#374151">Her sekme bir kasa</text>
+  <text x="740" y="536" font-size="13" fill="#374151">Tarih · Tür · Tutar ·</text>
+  <text x="740" y="554" font-size="13" fill="#374151">Açıklama</text>
+
+  <!-- GitHub Pages -->
+  <rect x="40" y="460" width="220" height="110" rx="12" fill="#f6f8fa" stroke="#57606a"/>
+  <text x="60" y="490" font-size="16" font-weight="700" fill="#24292f">GitHub Pages</text>
+  <text x="60" y="514" font-size="13" fill="#374151">Mini App: docs/index.html</text>
+  <text x="60" y="536" font-size="13" fill="#374151">Statik sayfa,</text>
+  <text x="60" y="554" font-size="13" fill="#374151">gizli bilgi içermez</text>
+
+  <!-- Açıklama kutusu -->
+  <rect x="310" y="310" width="370" height="160" rx="12" fill="#fffbeb" stroke="#f59e0b"/>
+  <text x="330" y="340" font-size="15" font-weight="700" fill="#92400e">Telefon nasıl sunucu olabiliyor?</text>
+  <text x="330" y="366" font-size="13" fill="#1f2937">• Bütün bağlantıları telefon başlatır.</text>
+  <text x="330" y="388" font-size="13" fill="#1f2937">• Telefona dışarıdan bağlanılmaz: port açma,</text>
+  <text x="344" y="406" font-size="13" fill="#1f2937">sabit IP ya da kiralık sunucu gerekmez.</text>
+  <text x="330" y="428" font-size="13" fill="#1f2937">• Mobil veride ve modem arkasında çalışır.</text>
+  <text x="330" y="450" font-size="13" fill="#1f2937">• Form verisi de Telegram üzerinden gelir.</text>
+
+  <!-- ① Sen -> Telegram -->
+  <line x1="262" y1="190" x2="376" y2="190" stroke="#6b7280" stroke-width="2" marker-end="url(#ok-gri)"/>
+  <text x="320" y="180" font-size="12" fill="#374151" text-anchor="middle">① mesaj / form</text>
+
+  <!-- ④ Telegram -> Sen (yanıt) -->
+  <line x1="378" y1="236" x2="264" y2="236" stroke="#6b7280" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ok-gri)"/>
+  <text x="320" y="256" font-size="12" fill="#374151" text-anchor="middle">④ "kaydedildi"</text>
+
+  <!-- ② Telefon -> Telegram (telefon sorar) -->
+  <line x1="718" y1="190" x2="580" y2="190" stroke="#4f46e5" stroke-width="2.5" marker-end="url(#ok-mor)"/>
+  <text x="648" y="180" font-size="12" font-weight="600" fill="#4f46e5" text-anchor="middle">② yeni mesaj var mı?</text>
+
+  <!-- Telegram -> Telefon (aynı bağlantıdan yanıt) -->
+  <line x1="578" y1="236" x2="716" y2="236" stroke="#4f46e5" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ok-mor)"/>
+  <text x="648" y="256" font-size="12" fill="#4f46e5" text-anchor="middle">mesaj gelir</text>
+
+  <!-- ③ Telefon -> Sheets -->
+  <line x1="820" y1="402" x2="820" y2="456" stroke="#4f46e5" stroke-width="2.5" marker-end="url(#ok-mor)"/>
+  <text x="830" y="434" font-size="12" font-weight="600" fill="#4f46e5">③ satır ekler</text>
+
+  <!-- GitHub Pages -> Sen -->
+  <line x1="150" y1="458" x2="150" y2="294" stroke="#6b7280" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ok-gri)"/>
+  <text x="160" y="372" font-size="12" fill="#374151">Mini App sayfası</text>
+  <text x="160" y="388" font-size="12" fill="#374151">yüklenir</text>
+
+  <text x="40" y="612" font-size="12" fill="#6b7280">Düz ok: bağlantıyı başlatan taraf   ·   Kesik ok: geri dönen veri   ·   Mor: telefonun kendi başlattığı bağlantılar</text>
+</svg>
