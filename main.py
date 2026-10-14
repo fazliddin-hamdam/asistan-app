@@ -22,6 +22,7 @@ Komutlar:
 
 import asyncio
 import html
+import json
 import logging
 import re
 import sys
@@ -241,6 +242,53 @@ class SheetExistsError(Exception):
     """Aynı isimde sekme zaten varsa fırlatılır."""
 
 
+class CredentialsError(Exception):
+    """credentials.json eksik ya da hatalı doldurulmuşsa fırlatılır."""
+
+
+def load_service_account_info(path: str) -> dict:
+    """
+    credentials.json'u okur. Google'ın indirdiği tam dosya da, yalnızca
+    client_email + private_key doldurulmuş kısa şablon da kabul edilir.
+
+    private_key elle yapıştırılırken sık yapılan hatalar tolere edilir:
+    satırlar gerçek alt satırlarla yapıştırılmış olabilir (JSON'da normalde
+    geçersiz) ya da "\\n" çift kaçışlı kalmış olabilir.
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            text = f.read()
+    except OSError:
+        raise CredentialsError(f"'{path}' bulunamadı; main.py ile aynı klasörde olmalı.") from None
+
+    try:
+        # strict=False: string içinde gerçek alt satıra izin verir (çok satırlı anahtar yapıştırma)
+        info = json.loads(text, strict=False)
+    except json.JSONDecodeError as e:
+        raise CredentialsError(
+            f"'{path}' JSON biçimi bozuk (satır {e.lineno}). Tırnakları ve virgülleri kontrol edin."
+        ) from None
+
+    email = str(info.get("client_email", "")).strip()
+    key = str(info.get("private_key", ""))
+    if not email or email.startswith("BURAYA") or "@" not in email:
+        raise CredentialsError(f"'{path}' içinde client_email doldurulmamış.")
+    if "BEGIN PRIVATE KEY" not in key:
+        raise CredentialsError(
+            f"'{path}' içinde private_key doldurulmamış ya da eksik "
+            "('-----BEGIN PRIVATE KEY-----' ile başlamalı)."
+        )
+
+    # Anahtarı standart PEM biçimine getir: kaçışları çöz, satır başı/sonu boşluklarını at.
+    key = key.replace("\\n", "\n")
+    lines = [line.strip() for line in key.splitlines() if line.strip()]
+    info["client_email"] = email
+    info["private_key"] = "\n".join(lines) + "\n"
+    info.setdefault("type", "service_account")
+    info.setdefault("token_uri", "https://oauth2.googleapis.com/token")
+    return info
+
+
 class SheetsRepository:
     """
     gspread senkron (bloklayan) bir kütüphanedir. Bu sınıftaki metotlar
@@ -260,7 +308,7 @@ class SheetsRepository:
     def _connect(self) -> gspread.Spreadsheet:
         if self._spreadsheet is None:
             logger.info("Google Sheets'e bağlanılıyor...")
-            client = gspread.service_account(filename=self._credentials_file)
+            client = gspread.service_account_from_dict(load_service_account_info(self._credentials_file))
             self._spreadsheet = client.open_by_key(self._spreadsheet_id)
             logger.info("Bağlandı: %s", self._spreadsheet.title)
         return self._spreadsheet
@@ -758,10 +806,9 @@ def validate_config() -> None:
     if not SPREADSHEET_ID or SPREADSHEET_ID.startswith("BURAYA"):
         errors.append("SPREADSHEET_ID doldurulmamış.")
     try:
-        with open(CREDENTIALS_FILE, encoding="utf-8"):
-            pass
-    except OSError:
-        errors.append(f"'{CREDENTIALS_FILE}' bulunamadı (Service Account JSON anahtarı).")
+        load_service_account_info(CREDENTIALS_FILE)
+    except CredentialsError as e:
+        errors.append(str(e))
     if errors:
         for err in errors:
             logger.critical("AYAR HATASI: %s", err)

@@ -140,8 +140,10 @@ chmod +x ~/.termux/boot/muhasebe.sh
 
 ### 2.4 JSON anahtarını alma
 1. Oluşan hizmet hesabına tıklayın → **Anahtarlar** sekmesi → **Anahtar Ekle → Yeni anahtar oluştur → JSON**.
-2. İnen dosyanın adını **`credentials.json`** yapıp `main.py` ile aynı klasöre koyun.
-3. Bu dosyanın içindeki `"client_email"` değerini kopyalayın (`muhasebe-bot@....iam.gserviceaccount.com`).
+2. Bir JSON dosyası iner. İki yoldan birini seçin:
+   - **Kolay yol:** İnen dosyayı `credentials.json` adıyla `main.py`'nin yanındaki şablonun yerine koyun.
+   - **Şablon yolu:** İnen dosyayı Not Defteri ile açın, `"client_email"` ve `"private_key"` değerlerini kopyalayıp hazır `credentials.json` şablonundaki `BURAYA_..._YAPISTIRIN` yerlerine yapıştırın (tırnaklar yerinde kalmalı). Anahtarın `-----BEGIN PRIVATE KEY-----` ile `-----END PRIVATE KEY-----\n` arasındaki tamamını alın.
+3. `"client_email"` değerini (`muhasebe-bot@....iam.gserviceaccount.com`) bir sonraki adım için not edin.
 
 > 🔒 `credentials.json` tablonuza tam erişim sağlar. Kimseyle paylaşmayın, GitHub'a yüklemeyin (`.gitignore`'da zaten hariç).
 
