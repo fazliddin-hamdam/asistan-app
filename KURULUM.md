@@ -8,7 +8,7 @@ Dosyalar:
 | `config.example.py` | Ayar şablonu → `config.py` olarak kopyalanıp doldurulur |
 | `requirements.txt` | Python kütüphaneleri |
 | `start.sh` | Botu çökünce otomatik yeniden başlatan döngü |
-| `docs/index.html` | Mini App formu (GitHub Pages'te yayınlanır) |
+| `index.html` | Mini App formu (GitHub Pages'te yayınlanır) |
 | `config.py` | **Sizin oluşturacağınız** gizli ayarlar (git'e eklenmez) |
 | `credentials.json` | **Sizin ekleyeceğiniz** Google Service Account anahtarı (git'e eklenmez) |
 
@@ -196,16 +196,31 @@ Komutlar: `/yenisayfa` (veya `/yenisayfa Borclar`), `/ozet`, `/iptal`, `/yardim`
 
 ## 3.1 (İsteğe bağlı) Telegram Mini App ile form
 
-Yazarak kayıt yerine Telegram içinde açılan bir form (Gider/Gelir, tutar, açıklama, sekme) kullanılabilir. Telegram Mini App'leri yalnızca **herkese açık HTTPS** adresinden açtığı için `docs/index.html` dosyası ücretsiz **GitHub Pages** ile yayınlanır. Sayfada gizli bilgi yoktur; Sheets'e yazmayı yine telefondaki bot yapar.
+Yazarak kayıt yerine Telegram içinde açılan bir form (Gider/Gelir, tutar, açıklama, sekme) kullanılabilir. Telegram Mini App'leri yalnızca **herkese açık HTTPS** adresinden açtığı için `index.html` dosyası ücretsiz **GitHub Pages** ile yayınlanır. Sayfada gizli bilgi yoktur; Sheets'e yazmayı yine telefondaki bot yapar.
 
 1. Projeyi kendi GitHub hesabınıza **Public** bir depo olarak yükleyin (ya da bu depoyu *fork*'layın).
-2. Depoda **Settings → Pages** → *Branch*: `main`, klasör: **`/docs`** → **Save**.
+2. Depoda **Settings → Pages** → *Branch*: `main`, klasör: **`/ (root)`** → **Save**.
 3. 1-2 dakika sonra aynı sayfanın üstünde adres görünür: `https://KULLANICIADI.github.io/asistan-app/`
 4. Bu adresi `config.py`'deki `WEBAPP_URL = ""` tırnaklarının içine yazın, botu yeniden başlatın.
 
 Bot açılınca sohbetin altında **📝 Kayıt Ekle** butonu belirir. Formu doldurup **Kaydet**'e basınca pencere kapanır ve bot "✅ kaydedildi" yanıtı verir. Yeni sekmeyi formdaki **➕ Yeni sekme** ile de açabilirsiniz.
 
 > Buton görünmezse bota `/start` yazın. Sekme listesi eskiyse (örn. Sheets'te elle sekme eklediyseniz) yine `/start` yazmanız listeyi yeniler.
+
+---
+
+## 3.2 (İsteğe bağlı) Sesli mesajla kayıt
+
+Bota sesli mesaj gönderirsiniz ("A101'e beş yüz lira"); bot sesi **Gemini API** ile metne çevirir ve yazılı mesajdaki gibi sekme butonlarını gösterir. Ses telefonda işlenmez, yalnızca Google'a gönderilir; telefon yorulmaz.
+
+1. https://aistudio.google.com/apikey adresine Google hesabınızla girin → **Create API key** → anahtarı kopyalayın. **Kart istemez.**
+2. `config.py`'ye ekleyin:
+   ```python
+   GEMINI_API_KEY = "kopyaladığınız_anahtar"
+   ```
+3. Botu yeniden başlatın: `pkill -f main.py`
+
+> Ücretsiz katmanda Google, gönderilen içeriği ürünlerini geliştirmek için kullanabilir. Sesli notlara hassas bilgi (kart numarası vb.) söylemeyin.
 
 ---
 

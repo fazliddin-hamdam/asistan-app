@@ -10,6 +10,12 @@ ALLOWED_USER_ID = 0
 # Tablo adresindeki .../spreadsheets/d/<ID>/edit kısmı
 SPREADSHEET_ID = "BURAYA_GOOGLE_SHEETS_ID_YAZIN"
 
-# docs/index.html'in GitHub Pages adresi (örn. "https://kullanici.github.io/asistan-app/")
+# index.html'in GitHub Pages adresi (örn. "https://kullanici.github.io/asistan-app/")
 # Boş bırakılırsa Mini App butonu gösterilmez.
 WEBAPP_URL = ""
+
+# Sesli kayıt (isteğe bağlı): https://aistudio.google.com/apikey adresinden ücretsiz anahtar
+# (kart istemez). Boş bırakılırsa sesli mesajlar işlenmez.
+GEMINI_API_KEY = ""
+# Sesi metne çeviren model; "gemini-flash-latest" her zaman güncel Flash modelini gösterir
+GEMINI_MODEL = "gemini-flash-latest"

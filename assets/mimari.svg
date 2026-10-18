@@ -52,7 +52,7 @@
   <!-- GitHub Pages -->
   <rect x="40" y="460" width="220" height="110" rx="12" fill="#f6f8fa" stroke="#57606a"/>
   <text x="60" y="490" font-size="16" font-weight="700" fill="#24292f">GitHub Pages</text>
-  <text x="60" y="514" font-size="13" fill="#374151">Mini App: docs/index.html</text>
+  <text x="60" y="514" font-size="13" fill="#374151">Mini App: index.html</text>
   <text x="60" y="536" font-size="13" fill="#374151">Statik sayfa,</text>
   <text x="60" y="554" font-size="13" fill="#374151">gizli bilgi içermez</text>
 
