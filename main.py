@@ -3,13 +3,15 @@
 Kişisel Telegram muhasebe botu.
 
 Termux'ta 7/24 çalışır, yalnızca sahibine yanıt verir ve gelir/gider kayıtlarını
-Google Sheets sekmelerine yazar. Kayıt iki yoldan girilir:
-  - serbest metin: "A101 500 TL", "+15000 maaş"  -> sekme butonlardan seçilir
-  - Mini App formu (docs/index.html)            -> veri sendData ile gelir
+Google Sheets sekmelerine yazar. Kayıt üç yoldan girilir:
+  - serbest metin: "A101 500 TL", "+15000 maaş"   -> sekme butonlardan seçilir
+  - sesli mesaj                                    -> Gemini ile metne çevrilir
+  - Mini App formu (index.html)                    -> veri sendData ile gelir
 Komutlar: /yenisayfa [ad], /ozet, /iptal, /yardim
 """
 
 import asyncio
+import base64
 import html
 import json
 import logging
@@ -34,6 +36,7 @@ from telegram import (
     Update,
     WebAppInfo,
 )
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -52,9 +55,16 @@ from telegram.ext import (
 
 # Gizli ayarlar config.py'de (git'e eklenmez); şablon: config.example.py
 try:
-    from config import ALLOWED_USER_ID, SPREADSHEET_ID, TELEGRAM_TOKEN, WEBAPP_URL
+    import config
 except ImportError:
     sys.exit("config.py bulunamadı: config.example.py'yi config.py adıyla kopyalayıp doldurun.")
+TELEGRAM_TOKEN = config.TELEGRAM_TOKEN
+ALLOWED_USER_ID = config.ALLOWED_USER_ID
+SPREADSHEET_ID = config.SPREADSHEET_ID
+WEBAPP_URL = config.WEBAPP_URL
+# Sesli kayıt için (isteğe bağlı); eski config.py'lerde bu alanlar olmayabilir
+GEMINI_API_KEY = getattr(config, "GEMINI_API_KEY", "")
+GEMINI_MODEL = getattr(config, "GEMINI_MODEL", "gemini-flash-latest")
 
 # Google Cloud'dan indirilen Service Account anahtarı (git'e eklenmez)
 CREDENTIALS_FILE = "credentials.json"
@@ -314,6 +324,7 @@ class PendingEntry:
     entry: ParsedEntry
     date_str: str  # mesajın geldiği an
     sheets: list[str]  # butonların gösterildiği andaki sekmeler; buton sekmeyi indeksle seçer
+    heard: str = ""  # sesli mesajdan geldiyse duyulan metin (mesajın başında gösterilir)
 
 
 def repo_of(context: ContextTypes.DEFAULT_TYPE) -> SheetsRepository:
@@ -334,7 +345,7 @@ def saved_text(sheet: str, entry: ParsedEntry, date_str: str, note: str = "") ->
 
 
 def pending_text(pending: PendingEntry) -> str:
-    return f"{entry_summary(pending.entry)}\n\n📂 Hangi sekmeye kaydedilsin?"
+    return f"{pending.heard}{entry_summary(pending.entry)}\n\n📂 Hangi sekmeye kaydedilsin?"
 
 
 def sheet_keyboard(entry_id: str, pending: PendingEntry) -> InlineKeyboardMarkup:
@@ -376,7 +387,8 @@ HELP_TEXT = (
     "Kayıt için yazın: <code>A101 500 TL</code>, <code>Market 1.250,50</code>\n"
     "Gelir: <code>+15000 maaş</code>, <code>gelir kira 8000</code> ya da "
     "maaş, tahsilat, müşteriden, sattım gibi kelimeler.\n"
-    "Sonra sekmeyi seçin; tür yanlışsa önce 🔄 ile değiştirin.\n\n"
+    "Sonra sekmeyi seçin; tür yanlışsa önce 🔄 ile değiştirin.\n"
+    "🎤 Aynısını sesli mesajla da söyleyebilirsiniz.\n\n"
     "/yenisayfa – Yeni sekme oluştur\n"
     "/ozet – Sekme bazında gelir/gider\n"
     "/iptal – İşlemi iptal et"
@@ -413,10 +425,14 @@ async def cmd_ozet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Serbest metni ayrıştırır, sekme butonlarını gösterir."""
-    entry = parse_entry(update.message.text)
+    await offer_entry(update, context, update.message.text)
+
+
+async def offer_entry(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, heard: str = "") -> None:
+    """Metni ayrıştırır, sekme butonlarını gösterir. heard: sesli mesajdan çıkan metnin başlığı."""
+    entry = parse_entry(text)
     if entry is None:
-        await update.message.reply_html("🤔 Tutar bulamadım. Örnek: <code>A101 500 TL</code>")
+        await update.message.reply_html(f"{heard}🤔 Tutar bulamadım. Örnek: <code>A101 500 TL</code>")
         return
     try:
         titles = await asyncio.to_thread(repo_of(context).list_sheet_titles)
@@ -432,7 +448,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     while len(store) >= MAX_PENDING:
         store.pop(next(iter(store)))  # en eski bekleyen kaydı at
     entry_id = uuid.uuid4().hex[:8]
-    pending = store[entry_id] = PendingEntry(entry, now_str(), titles)
+    pending = store[entry_id] = PendingEntry(entry, now_str(), titles, heard)
     await update.message.reply_html(pending_text(pending), reply_markup=sheet_keyboard(entry_id, pending))
 
 
@@ -473,6 +489,88 @@ async def on_entry_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         del store[entry_id]
         logger.info("Kaydedildi -> %s: %s", title, pending.entry)
         await query.edit_message_text(saved_text(title, pending.entry, pending.date_str), parse_mode="HTML")
+
+
+# =============================================================================
+# SESLİ KAYIT
+# =============================================================================
+# Sesli mesaj Gemini API ile metne çevrilir (ücretsiz katman kart istemez), sonra
+# yazılı mesajla aynı ayrıştırıcıdan geçer. Telefon sesi işlemez, yalnızca gönderir.
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+MAX_VOICE_SECONDS = 120
+TRANSCRIBE_PROMPT = (
+    "Bu, kişisel gelir/gider kaydı içeren Türkçe bir sesli nottur. Konuşmayı tek satır metne çevir. "
+    'Sayıları rakamla yaz ("beş yüz lira" -> "500 TL", "bin iki yüz elli" -> "1250"). '
+    "Yalnızca metni yaz; açıklama ya da tırnak ekleme. Konuşma yoksa boş bırak."
+)
+
+
+class TranscriptionError(Exception):
+    """Kullanıcıya gösterilecek hata mesajını taşır."""
+
+
+def transcribe(audio: bytes, mime_type: str) -> str:
+    """Sesi Gemini ile metne çevirir (bloklayan; to_thread ile çağrılır)."""
+    try:
+        response = requests.post(
+            GEMINI_URL.format(model=GEMINI_MODEL),
+            headers={"x-goog-api-key": GEMINI_API_KEY},
+            json={
+                "contents": [{"parts": [
+                    {"text": TRANSCRIBE_PROMPT},
+                    {"inline_data": {"mime_type": mime_type, "data": base64.b64encode(audio).decode()}},
+                ]}],
+                "generationConfig": {"temperature": 0},
+            },
+            timeout=60,
+        )
+    except (requests.ConnectionError, requests.Timeout):
+        raise TranscriptionError("Gemini'ye ulaşılamadı; internet bağlantısını kontrol edin.") from None
+
+    if response.status_code != 200:
+        logger.warning("Gemini hatası %s: %s", response.status_code, response.text[:500])
+        if response.status_code == 400 and "API key" in response.text:
+            raise TranscriptionError("GEMINI_API_KEY geçersiz; config.py'deki anahtarı kontrol edin.")
+        raise TranscriptionError({
+            403: "Gemini anahtarının bu API'ye erişim izni yok.",
+            404: f"'{GEMINI_MODEL}' modeli bulunamadı; config.py'de GEMINI_MODEL'i değiştirin.",
+            429: "Gemini ücretsiz kotası doldu, biraz sonra tekrar deneyin.",
+        }.get(response.status_code, f"Gemini hatası ({response.status_code})."))
+
+    try:
+        parts = response.json()["candidates"][0]["content"]["parts"]
+    except (ValueError, KeyError, IndexError):
+        return ""  # metin dönmediyse (ör. ses anlaşılamadı)
+    return " ".join(p.get("text", "") for p in parts).strip().strip('"')
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Sesli mesajı metne çevirir; sonrası yazılı kayıtla aynı akış."""
+    voice = update.message.voice or update.message.audio
+    if not GEMINI_API_KEY:
+        await update.message.reply_html(
+            "🎤 Sesli kayıt kapalı: config.py'ye <code>GEMINI_API_KEY</code> ekleyin (KURULUM.md, bölüm 3.2)."
+        )
+        return
+    if (voice.duration or 0) > MAX_VOICE_SECONDS:
+        await update.message.reply_text(f"🎤 Ses en fazla {MAX_VOICE_SECONDS} saniye olabilir.")
+        return
+
+    await update.message.chat.send_action(ChatAction.TYPING)
+    try:
+        file = await voice.get_file()
+        audio = bytes(await file.download_as_bytearray())
+        text = await asyncio.to_thread(transcribe, audio, voice.mime_type or "audio/ogg")
+    except TranscriptionError as e:
+        await update.message.reply_text(f"⚠️ {e}")
+        return
+    if not text:
+        await update.message.reply_text("🎤 Sesten metin çıkaramadım, tekrar dener misiniz?")
+        return
+
+    logger.info("Ses metne çevrildi: %s", text)
+    await offer_entry(update, context, text, heard=f"🎤 <i>{esc(text)}</i>\n\n")
 
 
 # =============================================================================
@@ -531,7 +629,7 @@ async def cmd_iptal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # =============================================================================
 # TELEGRAM MINI APP
 # =============================================================================
-# docs/index.html statik bir sayfadır (GitHub Pages). Sekme listesini butonun
+# index.html statik bir sayfadır (GitHub Pages). Sekme listesini butonun
 # adresindeki ?sheets=[...] parametresinden okur ve formu Telegram.WebApp.sendData
 # ile gönderir; veri bota web_app_data mesajı olarak gelir. Böylece telefonun
 # dışarıya açık bir sunucusu olmasına gerek kalmaz. sendData yalnızca alttaki
@@ -692,6 +790,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("iptal", cmd_iptal))
     application.add_handler(CallbackQueryHandler(on_entry_button, pattern=r"^(kaydet|tur|iptal)\|"))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_webapp_data))
+    application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_error_handler(error_handler)
     return application

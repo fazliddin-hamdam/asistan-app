@@ -54,6 +54,7 @@ Gerçek telefonda ölçülen değerler:
 - **Serbest metinle kayıt:** `A101 500 TL`, `Market 1.250,50`, `2 adet ampul 150` — tutar ve açıklama otomatik ayrılır (Türkçe ve İngilizce sayı biçimleri).
 - **Gelir/gider tahmini:** `+15000 maaş`, `gelir kira 8000` ya da *maaş, tahsilat, müşteriden, sattım* gibi kelimeler gelir sayılır. Tahmin yanlışsa kaydetmeden önce **🔄** ile değiştirilir.
 - **Dinamik sekmeler:** `/yenisayfa Borclar` yeni bir sekme açar, başlıkları yazar ve kalın yapar. Sekmeler butonlarda anında görünür.
+- **Sesli kayıt:** Sesli mesaj ("A101'e beş yüz lira") Gemini API ile metne çevrilir, sonra yazılı mesajla aynı akıştan geçer. Ses telefonda işlenmez; ücretsiz anahtar kart istemez.
 - **Mini App formu:** Gider/Gelir, tutar, açıklama ve sekme seçimi; formdan yeni sekme de açılabilir.
 - **Özet:** `/ozet` her sekmenin gelir, gider ve net toplamını verir.
 - **Dayanıklılık:** Ağ ya da Google kota hatalarında otomatik yeniden deneme, anlaşılır Türkçe hata mesajları, dönen log dosyası.
@@ -64,6 +65,7 @@ Gerçek telefonda ölçülen değerler:
 - **Gizli bilgiler depoda yok:** Bot token'ı ve kullanıcı/tablo kimlikleri `config.py`'de, Google anahtarı `credentials.json`'da durur. İkisi de `.gitignore`'dadır; depoda yalnızca boş şablon (`config.example.py`) vardır.
 - **Mini App gizli bilgi taşımaz:** Sayfa herkese açıktır ama içinde anahtar ya da token yoktur. Gelen form verisi bot tarafında yeniden doğrulanır (tür, tutar aralığı, sekme adı uzunluğu).
 - **En az yetki:** Google Service Account yalnızca kendisiyle paylaşılan tabloya erişebilir.
+- **Sesli mesajlar:** Metne çevrilmek üzere Gemini API'ye gider. Ücretsiz katmanda Google bu içeriği ürün geliştirmede kullanabilir; sesli notlarda hassas bilgi söylemeyin.
 
 ## Proje yapısı
 
@@ -73,7 +75,7 @@ asistan-app/
 ├── config.example.py    # Ayar şablonu → config.py olarak kopyalanır (git'e girmez)
 ├── requirements.txt     # python-telegram-bot, gspread, google-auth, requests
 ├── start.sh             # Çökünce yeniden başlatan döngü + wake-lock
-├── docs/index.html      # Mini App (GitHub Pages /docs klasöründen yayınlanır)
+├── index.html           # Mini App (GitHub Pages kök dizinden yayınlar)
 ├── assets/              # README görselleri
 ├── KURULUM.md           # Termux, Google Cloud ve Mini App kurulumu
 └── Asistan-Tanitim.pdf  # Bu tanıtımın PDF hâli
